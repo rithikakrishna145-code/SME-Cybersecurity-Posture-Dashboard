@@ -33,17 +33,38 @@ def train_and_score(login_logs, contamination=0.05):
     return df, model
 
 
+
 def evaluate_against_ground_truth(df):
     if "is_anomaly_ground_truth" not in df.columns:
         return None
+
     tp = ((df["is_anomaly"]) & (df["is_anomaly_ground_truth"])).sum()
     fp = ((df["is_anomaly"]) & (~df["is_anomaly_ground_truth"])).sum()
     fn = ((~df["is_anomaly"]) & (df["is_anomaly_ground_truth"])).sum()
     tn = ((~df["is_anomaly"]) & (~df["is_anomaly_ground_truth"])).sum()
+
     precision = tp / (tp + fp) if (tp + fp) > 0 else 0
     recall = tp / (tp + fn) if (tp + fn) > 0 else 0
-    return {"true_positives": int(tp), "false_positives": int(fp), "false_negatives": int(fn),
-            "true_negatives": int(tn), "precision": round(precision, 3), "recall": round(recall, 3)}
+
+    f1_score = (
+        2 * precision * recall / (precision + recall)
+        if (precision + recall) > 0 else 0
+    )
+
+    total = tp + fp + fn + tn
+    accuracy = (tp + tn) / total if total > 0 else 0
+
+    return {
+        "true_positives": int(tp),
+        "false_positives": int(fp),
+        "false_negatives": int(fn),
+        "true_negatives": int(tn),
+        "precision": round(precision, 3),
+        "recall": round(recall, 3),
+        "f1_score": round(f1_score, 3),
+        "accuracy": round(accuracy, 3)
+    }
+
 
 
 def org_has_recent_anomaly(df, lookback_events=40):
