@@ -1,86 +1,425 @@
-"""
-anomaly_model.py
-
-Isolation Forest-based anomaly detection for login/access patterns.
-"""
-
-import json
-import pandas as pd
-from sklearn.ensemble import IsolationForest
-
-KNOWN_IP_PREFIX = "192.168.1."
-
-
-def engineer_features(login_logs):
-    df = pd.DataFrame(login_logs)
-    df["timestamp"] = pd.to_datetime(df["timestamp"])
-    df["hour_of_day"] = df["timestamp"].dt.hour
-    df["is_known_ip"] = df["ip"].str.startswith(KNOWN_IP_PREFIX).astype(int)
-    df["login_success"] = df["success"].astype(int)
-    freq = df["user"].value_counts()
-    df["user_login_frequency"] = df["user"].map(freq)
-    return df
-
-
-def train_and_score(login_logs, contamination=0.05):
-    df = engineer_features(login_logs)
-    feature_cols = ["hour_of_day", "is_known_ip", "login_success", "user_login_frequency"]
-    X = df[feature_cols]
-    model = IsolationForest(n_estimators=100, contamination=contamination, random_state=42)
-    predictions = model.fit_predict(X)
-    df["is_anomaly"] = predictions == -1
-    df["anomaly_score"] = model.decision_function(X)
-    return df, model
-
-
-
-def evaluate_against_ground_truth(df):
-    if "is_anomaly_ground_truth" not in df.columns:
-        return None
-
-    tp = ((df["is_anomaly"]) & (df["is_anomaly_ground_truth"])).sum()
-    fp = ((df["is_anomaly"]) & (~df["is_anomaly_ground_truth"])).sum()
-    fn = ((~df["is_anomaly"]) & (df["is_anomaly_ground_truth"])).sum()
-    tn = ((~df["is_anomaly"]) & (~df["is_anomaly_ground_truth"])).sum()
-
-    precision = tp / (tp + fp) if (tp + fp) > 0 else 0
-    recall = tp / (tp + fn) if (tp + fn) > 0 else 0
-
-    f1_score = (
-        2 * precision * recall / (precision + recall)
-        if (precision + recall) > 0 else 0
-    )
-
-    total = tp + fp + fn + tn
-    accuracy = (tp + tn) / total if total > 0 else 0
-
-    return {
-        "true_positives": int(tp),
-        "false_positives": int(fp),
-        "false_negatives": int(fn),
-        "true_negatives": int(tn),
-        "precision": round(precision, 3),
-        "recall": round(recall, 3),
-        "f1_score": round(f1_score, 3),
-        "accuracy": round(accuracy, 3)
-    }
-
-
-
-def org_has_recent_anomaly(df, lookback_events=40):
-    recent = df.sort_values("timestamp").tail(lookback_events)
-    return bool(recent["is_anomaly"].any())
-
-
-if __name__ == "__main__":
-    with open("data/raw/synthetic_orgs.json") as f:
-        orgs = json.load(f)
-    for org in orgs:
-        df, model = train_and_score(org["login_logs"])
-        eval_result = evaluate_against_ground_truth(df)
-        anomaly_flag = org_has_recent_anomaly(df)
-        print(f"\n{org['org_name']} ({org['risk_level']} risk)")
-        print(f"  Anomalies flagged: {df['is_anomaly'].sum()} / {len(df)} events")
-        print(f"  Recent anomaly flag: {anomaly_flag}")
-        if eval_result:
-            print(f"  precision={eval_result['precision']}, recall={eval_result['recall']}")
+[
+  {
+    "org_name": "SecureStitch Apparel Pvt Ltd",
+    "total_score": 90,
+    "max_score": 100,
+    "rating": "Strong",
+    "category_breakdown": {
+      "Network Security": {
+        "awarded": 25.0,
+        "possible": 25.0
+      },
+      "Access Control": {
+        "awarded": 15.0,
+        "possible": 25.0
+      },
+      "Patch & Vulnerability Management": {
+        "awarded": 25.0,
+        "possible": 25.0
+      },
+      "Endpoint & Data Hygiene": {
+        "awarded": 25.0,
+        "possible": 25.0
+      }
+    },
+    "findings": [
+      {
+        "category": "Network Security",
+        "check_name": "Unnecessary open ports",
+        "passed": true,
+        "points_possible": 8,
+        "points_awarded": 8,
+        "detail": "3 non-standard open ports: [3306, 23, 3389]"
+      },
+      {
+        "category": "Network Security",
+        "check_name": "No unencrypted services exposed",
+        "passed": true,
+        "points_possible": 8,
+        "points_awarded": 8,
+        "detail": "None found"
+      },
+      {
+        "category": "Network Security",
+        "check_name": "Firewall active",
+        "passed": true,
+        "points_possible": 5,
+        "points_awarded": 5,
+        "detail": "Firewall active"
+      },
+      {
+        "category": "Network Security",
+        "check_name": "No default service banners exposed",
+        "passed": true,
+        "points_possible": 4,
+        "points_awarded": 4,
+        "detail": "Clean"
+      },
+      {
+        "category": "Access Control",
+        "check_name": "No default/weak credential patterns",
+        "passed": true,
+        "points_possible": 10,
+        "points_awarded": 10,
+        "detail": "Clean"
+      },
+      {
+        "category": "Access Control",
+        "check_name": "Failed logins within baseline threshold",
+        "passed": true,
+        "points_possible": 5,
+        "points_awarded": 5,
+        "detail": "0 failed logins in 24h (threshold: 10)"
+      },
+      {
+        "category": "Access Control",
+        "check_name": "No anomalous login pattern (ML)",
+        "passed": false,
+        "points_possible": 10,
+        "points_awarded": 0,
+        "detail": "Isolation Forest flagged anomalous access pattern"
+      },
+      {
+        "category": "Patch & Vulnerability Management",
+        "check_name": "No critical CVEs (CVSS >= 9.0)",
+        "passed": true,
+        "points_possible": 12,
+        "points_awarded": 12,
+        "detail": "0 critical CVE(s) found"
+      },
+      {
+        "category": "Patch & Vulnerability Management",
+        "check_name": "No high-severity CVEs (CVSS 7.0-8.9)",
+        "passed": true,
+        "points_possible": 8,
+        "points_awarded": 8,
+        "detail": "0 high-severity CVE(s) found"
+      },
+      {
+        "category": "Patch & Vulnerability Management",
+        "check_name": "No known end-of-life software",
+        "passed": true,
+        "points_possible": 5,
+        "points_awarded": 5,
+        "detail": "Clean"
+      },
+      {
+        "category": "Endpoint & Data Hygiene",
+        "check_name": "No exposed sensitive files in shares",
+        "passed": true,
+        "points_possible": 10,
+        "points_awarded": 10,
+        "detail": "Clean"
+      },
+      {
+        "category": "Endpoint & Data Hygiene",
+        "check_name": "Backup/recovery evidence present",
+        "passed": true,
+        "points_possible": 8,
+        "points_awarded": 8,
+        "detail": "Backup evidence found"
+      },
+      {
+        "category": "Endpoint & Data Hygiene",
+        "check_name": "Logging enabled",
+        "passed": true,
+        "points_possible": 7,
+        "points_awarded": 7,
+        "detail": "Logging active"
+      }
+    ],
+    "ml_validation": {
+      "true_positives": 3,
+      "false_positives": 10,
+      "false_negatives": 0,
+      "true_negatives": 268,
+      "precision": 0.231,
+      "recall": 1.0,
+      "f1_score": 0.375,
+      "accuracy": 0.964
+    },
+    "declared_risk_level": "low"
+  },
+  {
+    "org_name": "QuickBooks Retail Co",
+    "total_score": 75,
+    "max_score": 100,
+    "rating": "Moderate",
+    "category_breakdown": {
+      "Network Security": {
+        "awarded": 13.0,
+        "possible": 25.0
+      },
+      "Access Control": {
+        "awarded": 25.0,
+        "possible": 25.0
+      },
+      "Patch & Vulnerability Management": {
+        "awarded": 20.0,
+        "possible": 25.0
+      },
+      "Endpoint & Data Hygiene": {
+        "awarded": 17.0,
+        "possible": 25.0
+      }
+    },
+    "findings": [
+      {
+        "category": "Network Security",
+        "check_name": "Unnecessary open ports",
+        "passed": false,
+        "points_possible": 8,
+        "points_awarded": 0,
+        "detail": "5 non-standard open ports: [23, 22, 25, 5432, 21]"
+      },
+      {
+        "category": "Network Security",
+        "check_name": "No unencrypted services exposed",
+        "passed": true,
+        "points_possible": 8,
+        "points_awarded": 8,
+        "detail": "None found"
+      },
+      {
+        "category": "Network Security",
+        "check_name": "Firewall active",
+        "passed": true,
+        "points_possible": 5,
+        "points_awarded": 5,
+        "detail": "Firewall active"
+      },
+      {
+        "category": "Network Security",
+        "check_name": "No default service banners exposed",
+        "passed": false,
+        "points_possible": 4,
+        "points_awarded": 0,
+        "detail": "Default/identifiable banners exposed"
+      },
+      {
+        "category": "Access Control",
+        "check_name": "No default/weak credential patterns",
+        "passed": true,
+        "points_possible": 10,
+        "points_awarded": 10,
+        "detail": "Clean"
+      },
+      {
+        "category": "Access Control",
+        "check_name": "Failed logins within baseline threshold",
+        "passed": true,
+        "points_possible": 5,
+        "points_awarded": 5,
+        "detail": "0 failed logins in 24h (threshold: 10)"
+      },
+      {
+        "category": "Access Control",
+        "check_name": "No anomalous login pattern (ML)",
+        "passed": true,
+        "points_possible": 10,
+        "points_awarded": 10,
+        "detail": "No anomaly detected by model"
+      },
+      {
+        "category": "Patch & Vulnerability Management",
+        "check_name": "No critical CVEs (CVSS >= 9.0)",
+        "passed": true,
+        "points_possible": 12,
+        "points_awarded": 12,
+        "detail": "0 critical CVE(s) found"
+      },
+      {
+        "category": "Patch & Vulnerability Management",
+        "check_name": "No high-severity CVEs (CVSS 7.0-8.9)",
+        "passed": true,
+        "points_possible": 8,
+        "points_awarded": 8,
+        "detail": "0 high-severity CVE(s) found"
+      },
+      {
+        "category": "Patch & Vulnerability Management",
+        "check_name": "No known end-of-life software",
+        "passed": false,
+        "points_possible": 5,
+        "points_awarded": 0,
+        "detail": "EOL software detected"
+      },
+      {
+        "category": "Endpoint & Data Hygiene",
+        "check_name": "No exposed sensitive files in shares",
+        "passed": true,
+        "points_possible": 10,
+        "points_awarded": 10,
+        "detail": "Clean"
+      },
+      {
+        "category": "Endpoint & Data Hygiene",
+        "check_name": "Backup/recovery evidence present",
+        "passed": false,
+        "points_possible": 8,
+        "points_awarded": 0,
+        "detail": "No backup evidence detected"
+      },
+      {
+        "category": "Endpoint & Data Hygiene",
+        "check_name": "Logging enabled",
+        "passed": true,
+        "points_possible": 7,
+        "points_awarded": 7,
+        "detail": "Logging active"
+      }
+    ],
+    "ml_validation": {
+      "true_positives": 3,
+      "false_positives": 13,
+      "false_negatives": 0,
+      "true_negatives": 315,
+      "precision": 0.188,
+      "recall": 1.0,
+      "f1_score": 0.316,
+      "accuracy": 0.961
+    },
+    "declared_risk_level": "medium"
+  },
+  {
+    "org_name": "LegacyWare Traders",
+    "total_score": 6.6,
+    "max_score": 100,
+    "rating": "Critical",
+    "category_breakdown": {
+      "Network Security": {
+        "awarded": 0.0,
+        "possible": 25.0
+      },
+      "Access Control": {
+        "awarded": 5.0,
+        "possible": 25.0
+      },
+      "Patch & Vulnerability Management": {
+        "awarded": 1.5999999999999996,
+        "possible": 25.0
+      },
+      "Endpoint & Data Hygiene": {
+        "awarded": 0.0,
+        "possible": 25.0
+      }
+    },
+    "findings": [
+      {
+        "category": "Network Security",
+        "check_name": "Unnecessary open ports",
+        "passed": false,
+        "points_possible": 8,
+        "points_awarded": 0,
+        "detail": "5 non-standard open ports: [8080, 25, 21, 3306, 23]"
+      },
+      {
+        "category": "Network Security",
+        "check_name": "No unencrypted services exposed",
+        "passed": false,
+        "points_possible": 8,
+        "points_awarded": 0,
+        "detail": "Unencrypted services found: ['telnet']"
+      },
+      {
+        "category": "Network Security",
+        "check_name": "Firewall active",
+        "passed": false,
+        "points_possible": 5,
+        "points_awarded": 0,
+        "detail": "Firewall not detected/inactive"
+      },
+      {
+        "category": "Network Security",
+        "check_name": "No default service banners exposed",
+        "passed": false,
+        "points_possible": 4,
+        "points_awarded": 0,
+        "detail": "Default/identifiable banners exposed"
+      },
+      {
+        "category": "Access Control",
+        "check_name": "No default/weak credential patterns",
+        "passed": false,
+        "points_possible": 10,
+        "points_awarded": 0,
+        "detail": "Weak/default credential pattern detected"
+      },
+      {
+        "category": "Access Control",
+        "check_name": "Failed logins within baseline threshold",
+        "passed": true,
+        "points_possible": 5,
+        "points_awarded": 5,
+        "detail": "0 failed logins in 24h (threshold: 10)"
+      },
+      {
+        "category": "Access Control",
+        "check_name": "No anomalous login pattern (ML)",
+        "passed": false,
+        "points_possible": 10,
+        "points_awarded": 0,
+        "detail": "Isolation Forest flagged anomalous access pattern"
+      },
+      {
+        "category": "Patch & Vulnerability Management",
+        "check_name": "No critical CVEs (CVSS >= 9.0)",
+        "passed": false,
+        "points_possible": 12,
+        "points_awarded": 0,
+        "detail": "3 critical CVE(s) found"
+      },
+      {
+        "category": "Patch & Vulnerability Management",
+        "check_name": "No high-severity CVEs (CVSS 7.0-8.9)",
+        "passed": false,
+        "points_possible": 8,
+        "points_awarded": 1.5999999999999996,
+        "detail": "4 high-severity CVE(s) found"
+      },
+      {
+        "category": "Patch & Vulnerability Management",
+        "check_name": "No known end-of-life software",
+        "passed": false,
+        "points_possible": 5,
+        "points_awarded": 0,
+        "detail": "EOL software detected"
+      },
+      {
+        "category": "Endpoint & Data Hygiene",
+        "check_name": "No exposed sensitive files in shares",
+        "passed": false,
+        "points_possible": 10,
+        "points_awarded": 0,
+        "detail": "Sensitive-looking files found in scanned shares"
+      },
+      {
+        "category": "Endpoint & Data Hygiene",
+        "check_name": "Backup/recovery evidence present",
+        "passed": false,
+        "points_possible": 8,
+        "points_awarded": 0,
+        "detail": "No backup evidence detected"
+      },
+      {
+        "category": "Endpoint & Data Hygiene",
+        "check_name": "Logging enabled",
+        "passed": false,
+        "points_possible": 7,
+        "points_awarded": 0,
+        "detail": "Logging not detected"
+      }
+    ],
+    "ml_validation": {
+      "true_positives": 3,
+      "false_positives": 16,
+      "false_negatives": 0,
+      "true_negatives": 345,
+      "precision": 0.158,
+      "recall": 1.0,
+      "f1_score": 0.273,
+      "accuracy": 0.956
+    },
+    "declared_risk_level": "high"
+  }
+]
