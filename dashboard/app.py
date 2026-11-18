@@ -373,14 +373,15 @@ def main():
             f"{ml_val['recall']:.3f}"
         )
 
+        
         c3.metric(
             "F1-Score",
-            f"{ml_val['f1_score']:.3f}"
+            f"{ml_val.get('f1_score', 0):.3f}"
         )
 
         c4.metric(
             "Accuracy",
-            f"{ml_val['accuracy']:.3f}"
+            f"{ml_val.get('accuracy', 0):.3f}"
         )
 
         st.caption(
